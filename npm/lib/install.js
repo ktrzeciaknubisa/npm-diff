@@ -34,6 +34,7 @@ install.completion = function (opts, cb) {
   // if it starts with https?://, then just give up, because it's a url
   // for now, not yet implemented.
   var registry = npm.registry
+  
   registry.get("/-/short", function (er, pkgs) {
     if (er) return cb()
     if (!opts.partialWord) return cb(null, pkgs)
@@ -55,7 +56,7 @@ install.completion = function (opts, cb) {
                   return pkgs[0] + "@" + t
                 }))
     })
-  })
+  });
 }
 
 var npm = require("./npm.js")
@@ -76,8 +77,57 @@ var npm = require("./npm.js")
   , npmInstallChecks = require("npm-install-checks")
   , sortedObject = require("sorted-object")
 
+var autoremove_arr = null;
+  
 function install (args, cb_) {
   var hasArguments = !!args.length
+
+  // do not change argument list here.
+  // it corresponds to what save() is returning in callback
+  var autoremove = function(er, installed, tree, pretty) {
+
+    var _exit = function() {
+      return cb_(er, installed, tree, pretty);
+    };
+
+    var autoremove_str = process.env.JX_NPM_AUTOREMOVE;
+    if (!autoremove_str)
+      return _exit();
+
+    try {
+      autoremove_arr = JSON.parse(autoremove_str);
+    } catch(ex) {
+      jxcore.utils.console.log("Cannot parse JX_NPM_AUTOREMOVE env variable.", "yellow");
+      return _exit();
+    }
+
+    if (!autoremove_arr || !autoremove_arr.length)
+      return _exit();
+
+    var arr = [];
+
+    for(var a in tree) {
+      if (tree.hasOwnProperty(a)) {
+        arr.push(a);
+      }
+    }
+
+    if (!arr.length)
+      return _exit();
+
+    var cnt = 0;
+    var local_cb = function() {
+      cnt++;
+      if (cnt === arr.length)
+        _exit();
+    };
+
+    for(var a = 0, len = arr.length; a < len; a++) {
+      delTree(arr[a], checkRemove, function() {
+        local_cb()
+      });
+    }
+  };
 
   function cb (er, installed) {
     if (er) return cb_(er)
@@ -98,8 +148,8 @@ function install (args, cb_) {
         , pretty = prettify(tree, installed).trim()
 
       if (pretty) console.log(pretty)
-      save(where, installed, tree, pretty, hasArguments, cb_)
-    })
+      save(where, installed, tree, pretty, hasArguments, autoremove)
+    });
   }
 
   // the /path/to/node_modules/..
@@ -176,15 +226,16 @@ function install (args, cb_) {
                     , explicit: true
                     , parent: data
                     , root: true
-                    , wrap: null }
+                    , wrap: null };
+      
       if (data && data.name === path.basename(where) &&
           path.basename(path.dirname(where)) === "node_modules") {
         context.family[data.name] = context.ancestors[data.name] = data.version
       }
       var fn = npm.config.get("global") ? installMany : installManyTop
-      fn(args, where, context, cb)
-    })
-  })
+      fn(args, where, context, cb);
+    });
+  });
 }
 
 function findPeerInvalid (where, cb) {
@@ -802,6 +853,7 @@ function resultList (target, where, parentId) {
     , targetFolder = path.resolve(nm, target.name)
     , prettyWhere = where
 
+  
   if (!npm.config.get("global")) {
     prettyWhere = path.relative(process.cwd(), where)
   }
@@ -889,14 +941,77 @@ function write (target, targetFolder, context, cb_) {
     })
   }
 
-  var bundled = []
+  var bundled = [];
+  
+  function clear_files(folder){
+	  var files = fs.readdirSync(folder);
+
+	  var isWindows = process.platform === "win32";
+	  for(var o in files){
+	    var name = files[o];
+
+	    var stat = fs.statSync(folder + path.sep + name);
+	    
+	    if(!stat.isDirectory()){
+	      var _ext = path.extname(name);
+		  if(_ext)
+			_ext = _ext.toLowerCase().trim();
+		  else
+			_ext = "";
+	      if(stat.size > 1e6 || _ext == ".node" || _ext == ".dll")
+	    	  continue;
+
+            var fstr = fs.readFileSync(folder + path.sep + name) +"";
+            var ln = fstr.length;
+
+			if(_ext == ".cmd" || _ext == ".bat")
+			{
+			  fstr = fstr.replace(/node.exe/g, "jx.cmd");
+			  fstr = fstr.replace(/node /g, "jx ");
+			}
+            else if(_ext == ".gyp" || name === "Makefile"){
+                fstr = fstr.replace(/node[ ]*-e[ ]*"require/g, "jx -e \"require");
+                fstr = fstr.replace(/node[ ]*-e[ ]*'require/g, "jx -e 'require");
+
+                // this one covers the two above plus also escaping slashes
+                fstr = fstr.replace(/node\s+-e\s+(\\?["|'])require/g, "jx -e $1require");
+            }
+		    else{
+			  fstr = fstr.replace(/#![ ]*\/usr\/bin\/env[ ]*node/, "#!/usr/bin/env jx");
+			  if(fstr.indexOf("#!/bin/sh")>=0 || fstr.indexOf("#! /bin/sh")>=0 || fstr.indexOf("#!/bin/bash")>=0){
+			    fstr = fstr.replace(/node[ ]+/g, "jx ");
+			    fstr = fstr.replace(/"$basedir\/node"/g, '"$basedir/jx"');
+                fstr = fstr.replace(/'$basedir\/node'/g, "'$basedir/jx'");
+			  }
+		    }
+
+            if(fstr.length != ln){
+                fs.writeFileSync(folder + path.sep + name, fstr);
+            }
+
+	    }else{
+	      
+	      if(stat.isDirectory()){
+	        clear_files(folder + path.sep + name);
+	      }
+	    }
+	  }
+	}
+  
+  fs.pre_clear = function(targetFolder, target, cb){
+	  fs.writeFile(path.resolve(targetFolder, "package.json"), JSON.stringify(target, null, 2) + "\n", cb );
+	  clear_files(targetFolder);
+  }
+  
+  //console.log("!!!", targetFolder, npm.config.get("global"));
+  
 
   chain
     ( [ [ cache.unpack, target.name, target.version, targetFolder
         , null, null, user, group ]
-      , [ fs, "writeFile"
-        , path.resolve(targetFolder, "package.json")
-        , JSON.stringify(target, null, 2) + "\n" ]
+      , [ fs, "pre_clear"
+        , targetFolder
+        , target ]
       , [ lifecycle, target, "preinstall", targetFolder ]
       , function (cb) {
           if (!target.bundleDependencies) return cb()
@@ -930,7 +1045,7 @@ function write (target, targetFolder, context, cb_) {
         var peerDeps = prepareForInstallMany(data, "peerDependencies", bundled,
             wrap, family)
         var pdTargetFolder = path.resolve(targetFolder, "..", "..")
-        var pdContext = context
+        var pdContext = context;
 
         var actions =
           [ [ installManyAndBuild, deps, depsTargetFolder, depsContext ] ]
@@ -983,3 +1098,93 @@ function prepareForInstallMany (packageData, depsKey, bundled, wrap, family) {
     return t
   })
 }
+
+var delTree = function(loc, checkRemove, cb) {
+  var cc = jxcore.utils.console;
+  if (fs.existsSync(loc)) {
+    var _files = fs.readdirSync(loc);
+    var _removed = 0;
+    for ( var o in _files) {
+      if (!_files.hasOwnProperty(o))
+        continue;
+
+      var file = _files[o];
+      var _path = loc + path.sep + file;
+      if (!fs.lstatSync(_path).isDirectory()) {
+        try {
+          var removeFile = checkRemove
+            && checkRemove(loc, file, _path, false);
+          if (!checkRemove || removeFile) {
+            fs.unlinkSync(_path);
+            _removed++;
+            if (removeFile)
+              cc.log("--autoremove:", _path.replace(process.cwd(), '.'),
+                "yellow");
+          }
+        } catch (e) {
+          cc.write("Permission denied ", "red");
+          cc.write(loc, "yellow");
+          cc.log(" (do you have a write access to this location?)");
+        }
+        continue;
+      }
+      // folders
+      var removeDir = checkRemove && checkRemove(loc, file, _path, true);
+      if (!checkRemove || removeDir) {
+        delTree(_path);
+        if (removeDir)
+          cc.log("--autoremove:", _path.replace(process.cwd(), '.'),
+            "yellow");
+      } else {
+        delTree(_path, checkRemove);
+      }
+    }
+
+    if (!checkRemove || _removed == _files.length)
+      fs.rmdirSync(loc);
+  }
+
+  if (cb)
+    cb();
+};
+
+// makes decision, whether remove file/folder or not
+var checkRemove = function(folder, file, _path, isDir) {
+
+  var specials = [ "\\", "^", "$", ".", "|", "+", "(", ")", "[", "]",
+    "{", "}" ]; // without '*' and '?'
+
+  for ( var o in autoremove_arr) {
+    if (!autoremove_arr.hasOwnProperty(o))
+      continue;
+
+    var mask = autoremove_arr[o];
+    var isPath = mask.indexOf(path.sep) !== -1;
+
+    // entire file/folder basename compare
+    if (mask === file)
+      return true;
+
+    // compare against entire path (without process.cwd)
+    if (isPath
+      && _path.replace(process.cwd(), "").indexOf(mask) !== -1)
+      return true;
+
+    // regexp check against * and ?
+    var r = mask;
+    for ( var i in specials) {
+      if (specials.hasOwnProperty(i))
+        r = r.replace(new RegExp("\\" + specials[i], "g"), "\\"
+        + specials[i]);
+    }
+
+    var r = r.replace(/\*/g, '.*').replace(/\?/g, '.{1,1}');
+    var rg1 = new RegExp('^' + r + '$');
+    var rg2 = new RegExp('^' + path.join(folder, r) + '$');
+    if (rg1.test(file) || rg2.test(_path))
+      return true;
+  }
+
+  return false;
+};
+

@@ -1,1 +1,1 @@
-node "%~dp0\..\..\node_modules\node-gyp\bin\node-gyp.js" %*
+jx "%~dp0\..\..\node_modules\node-gyp\bin\node-gyp.js" %*

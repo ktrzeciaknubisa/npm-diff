@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env jx
 ;(function () { // wrapper in case we're in module_context mode
 
 // windows: running "npm blah" in this folder will invoke WSH, not node.
@@ -29,12 +29,15 @@ var fs = require("graceful-fs")
   , shorthands = configDefs.shorthands
   , types = configDefs.types
   , nopt = require("nopt")
+  , jx = require("../lib/_jx.js")
 
 // if npm is called as "npmg" or "npm_g", then
 // run in global mode.
 if (path.basename(process.argv[1]).slice(-1)  === "g") {
   process.argv.splice(1, 1, "npm", "-g")
 }
+
+jx.checkBuildFromSource();
 
 log.verbose("cli", process.argv)
 
@@ -57,6 +60,7 @@ if (conf.versions) {
 
 log.info("using", "npm@%s", npm.version)
 log.info("using", "node@%s", process.version)
+log.info("using", "jxcore@%s", process.jxversion)
 
 // make sure that this version of node works with this version of npm.
 var semver = require("semver")
@@ -80,7 +84,7 @@ if (conf.usage && npm.command !== "help") {
 conf._exit = true
 npm.load(conf, function (er) {
   if (er) return errorHandler(er)
-  npm.commands[npm.command](npm.argv, errorHandler)
-})
+  npm.commands[npm.command](npm.argv, errorHandler);
+});
 
 })()
