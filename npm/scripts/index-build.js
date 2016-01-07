@@ -1,4 +1,4 @@
-#!/usr/bin/env jx
+#!/usr/bin/env node
 var fs = require("fs")
   , path = require("path")
   , root = path.resolve(__dirname, "..")
