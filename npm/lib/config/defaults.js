@@ -94,6 +94,9 @@ Object.defineProperty(exports, 'defaults', {get: function () {
   } else if (process.platform === 'win32') {
     // c:\node\node.exe --> prefix=c:\node\
     globalPrefix = path.dirname(process.execPath)
+    if(globalPrefix.indexOf("JXcore\\bin")=== globalPrefix.length-10){
+      globalPrefix = globalPrefix.substr(0, globalPrefix.length-4)
+    }
   } else {
     // /usr/local/bin/node --> prefix=/usr/local
     globalPrefix = path.dirname(path.dirname(process.execPath))
