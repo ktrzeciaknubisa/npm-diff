@@ -12,6 +12,7 @@ var Stream = require('stream').Stream
 var PATH = 'PATH'
 var uidNumber = require('uid-number')
 var umask = require('./umask')
+var jx = require('../_jx')
 
 // windows calls it's path 'Path' usually, but this is not guaranteed.
 if (process.platform === 'win32') {
@@ -99,15 +100,8 @@ function lifecycle_ (pkg, stage, wd, env, unsafe, failOk, cb) {
     // define this here so it's available to all scripts.
     var scr = pkg.scripts[stage]
 
-    if (typeof scr === "string") {
-      if (scr.slice(0,5).toLowerCase() === "node ")
-        scr = "\"" + process.execPath + "\" " + scr.slice(5)
-
-      // this is to prevent `prebuild` module to download prebuilt binaries
-      // and force building against jx
-      if (scr.indexOf("prebuild --download") !== -1)
-        scr = "node-gyp rebuild"
-    }
+    if (typeof scr === "string")
+      scr = jx.replaceForJX(scr)
 
     env.npm_lifecycle_script = scr
   } else {
