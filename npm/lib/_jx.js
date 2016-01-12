@@ -82,7 +82,7 @@ exports.clear_files = function(folder) {
         fstr = exports.replaceForJX(fstr);
       }
       else{
-        fstr = fstr.replace(/#![ ]*\/usr\/bin\/env[ ]*node/, "#!/usr/bin/env node");
+        fstr = fstr.replace(/#![ ]*\/usr\/bin\/env[ ]*node/, "#!/usr/bin/env jx");
         if(fstr.indexOf("#!/bin/sh")>=0 || fstr.indexOf("#! /bin/sh")>=0 || fstr.indexOf("#!/bin/bash")>=0){
           fstr = fstr.replace(/node[ ]+/g, "jx ");
           fstr = fstr.replace(/"$basedir\/node"/g, '"$basedir/jx"');

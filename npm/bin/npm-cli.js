@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env jx
 ;(function () { // wrapper in case we're in module_context mode
 
   // windows: running "npm blah" in this folder will invoke WSH, not node.
