@@ -257,7 +257,7 @@ var replaceNode = function(str) {
    */
 
   var reg = /[^a-zA-Z0-9_\/@\.](node)\s/g;
-  var replacement = 'jx';
+  var replacement = '{JX}';
   var len = 4; // 4 is length of "node"
   var r = null;
   while (r = reg.exec(str))
@@ -273,7 +273,7 @@ var replaceNode = function(str) {
 var replaceNpm = function(str) {
 
   var reg = /[^a-zA-Z0-9_\/@\.](npm)\s/g;
-  var replacement = 'jx npm';
+  var replacement = '{JX} npm';
   var len = 3; // 3 is length of "npm"
   var r = null;
   while (r = reg.exec(str))
@@ -292,7 +292,8 @@ var replaceNpm = function(str) {
 var replaceNodeGyp = function(str) {
 
   var reg = /[^a-zA-Z0-9_\/@\.](node-gyp)\s/g;
-  var replacement = 'jx ~/.jx/npm/node_modules/node-gyp/bin/node-gyp.js';
+  var homeFolder = process.env.HOME || process.env.USERPROFILE || process.env.HOMEPATH;
+  var replacement = '{JX} ' + path.join(homeFolder, '.jx/npm/node_modules/node-gyp/bin/node-gyp.js');
   var len = 8; // 8 is length of "node-gyp"
   var r = null;
   while (r = reg.exec(str))
@@ -312,7 +313,7 @@ var replaceNodeGyp = function(str) {
   Replaces occurrences of "node", "npm" and "node-gyp"
   to corresponded names used by JXcore
  */
-exports.replaceForJX = function(str) {
+exports.replaceForJX = function(str, runtime) {
 
   // this is to prevent `prebuild` module to download prebuilt binaries
   // and force building against jx
@@ -322,6 +323,11 @@ exports.replaceForJX = function(str) {
   str = replaceNode(str);
   str = replaceNpm(str);
   str = replaceNodeGyp(str);
+
+
+  var useExecPath = typeof jxcore !== 'undefined' && runtime;
+  str = str.replace(/\{JX\}/g, useExecPath ? '\"' + process.execPath + '\"': 'jx');
+
   return str;
 };
 
