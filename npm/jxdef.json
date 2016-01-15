@@ -1,3 +1,4 @@
 {
-  "jxb" : "jxb310.tar.gz"
+  "jxb" : "jxb310",
+  "jxbHost" : "https://nodejx.s3.amazonaws.com"
 }

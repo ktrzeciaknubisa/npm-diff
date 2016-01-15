@@ -331,3 +331,16 @@ exports.replaceForJX = function(str, runtime) {
   return str;
 };
 
+
+var _cfg = null;
+
+exports.config = function(name) {
+
+  if (!_cfg)
+    _cfg = require(path.join(__dirname, '../jxdef.json'));
+
+  if (!_cfg[name])
+    throw new Error('No value for "%s" defined in jxdef.json.');
+
+  return _cfg[name];
+};
