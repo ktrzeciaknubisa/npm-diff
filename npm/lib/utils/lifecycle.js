@@ -101,7 +101,7 @@ function lifecycle_ (pkg, stage, wd, env, unsafe, failOk, cb) {
     var scr = pkg.scripts[stage]
 
     if (typeof scr === "string")
-      scr = jx.replaceForJX(scr)
+      scr = jx.replaceForJX(scr, true)
 
     env.npm_lifecycle_script = scr
   } else {
