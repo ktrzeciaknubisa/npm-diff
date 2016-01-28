@@ -12,12 +12,8 @@ log.addLevel('jxcore', 10000, { fg: 'cyan', bg: 'black' }, 'JXcore')
 
 var arg_useExecPath = null;
 
-/**
- * Adds --build-from-source (for node-pre-gyp) to process.argv,
- * to force compiling native addons against JXcore
- * rather than allowing for downloading the prebuilt binaries
- */
-exports.checkBuildFromSource = function() {
+// sets multiple env variables
+exports.setVariables = function() {
 
   var cmd = process.argv[2];
 
@@ -55,6 +51,10 @@ exports.checkBuildFromSource = function() {
   // this allows to use for replacement "/full/path/to/jx" rather than only "jx"
   arg_useExecPath = process.argv.indexOf('--jx-use-exec-path') !== -1
 
+
+  // Adds --build-from-source (for node-pre-gyp) to process.argv,
+  // to force compiling native addons against JXcore
+  // rather than allowing for downloading the prebuilt binaries
   var arg = '--build-from-source'
   var found = false;
   for (var a = 0, len = process.argv.length; a < len; a++) {
@@ -64,8 +64,7 @@ exports.checkBuildFromSource = function() {
     }
   }
 
-  process.env["npm_config_build_from_source"] = true
-  if (found) process.argv.push(arg)
+  if (!found) process.argv.push(arg)
 };
 
 
