@@ -3,12 +3,14 @@
 var path = require('path')
 var fs = require('fs')
 var log = require('npmlog')
+var npm = require('./npm.js')
 
 var autoremove_arr = null;
 
 // for jxcore related logging
 log.addLevel('jxcore', 10000, { fg: 'cyan', bg: 'black' }, 'JXcore')
 
+var arg_useExecPath = null;
 
 /**
  * Adds --build-from-source (for node-pre-gyp) to process.argv,
@@ -33,17 +35,37 @@ exports.checkBuildFromSource = function() {
   if (supportedCommands.indexOf(cmd) === -1)
     return;
 
-  var arg = '--build-from-source';
-
-  for (var a = 0, len = process.argv.length; a < len; a++) {
-    if (process.argv[a].indexOf(arg) > -1)
-      return;
-  }
-
-  process.argv.push(arg);
+  // set some env variables
 
   // this is to instruct node-pre-gyp to use node-gyp bundled with npmjx
   process.env["npm_config_node_gyp"] = path.join(__dirname, '../node_modules/node-gyp/bin/node-gyp.js')
+
+  // JX_NODE_GYP_OVERRIDE
+  process.env["JX_NODE_GYP_OVERRIDE"] = path.join(__dirname, '../node_modules/node-gyp/bin/node-gyp.js')
+  //process.env["JX_NODE_GYP_OVERRIDE_VERBOSE"] = true
+
+  // for node-sass
+  process.env["SASS_FORCE_BUILD"] = true
+  //process.env["SKIP_SASS_BINARY_DOWNLOAD_FOR_CI"] = true
+
+  // for node-gyp
+  process.env["NVM_NODEJS_ORG_MIRROR"] = "https://nodejx.s3.amazonaws.com"
+  process.env["JX_NPM_JXB"] = "jxb311"
+
+  // this allows to use for replacement "/full/path/to/jx" rather than only "jx"
+  arg_useExecPath = process.argv.indexOf('--jx-use-exec-path') !== -1
+
+  var arg = '--build-from-source'
+  var found = false;
+  for (var a = 0, len = process.argv.length; a < len; a++) {
+    if (process.argv[a].indexOf(arg) > -1) {
+      found = true
+      break
+    }
+  }
+
+  process.env["npm_config_build_from_source"] = true
+  if (found) process.argv.push(arg)
 };
 
 
@@ -270,7 +292,7 @@ var replaceNode = function(str) {
   return str;
 };
 
-var replaceNpm = function(str) {
+var replaceNpm = function(str, runtime) {
 
   var reg = /[^a-zA-Z0-9_\/@\.](npm)\s/g;
   var replacement = '{JX} npm';
@@ -289,11 +311,10 @@ var replaceNpm = function(str) {
 };
 
 
-var replaceNodeGyp = function(str) {
+var replaceNodeGyp = function(str, runtime) {
 
   var reg = /[^a-zA-Z0-9_\/@\.](node-gyp)\s/g;
-  var homeFolder = process.env.HOME || process.env.USERPROFILE || process.env.HOMEPATH;
-  var replacement = '{JX} ' + path.join(homeFolder, '.jx/npm/node_modules/node-gyp/bin/node-gyp.js');
+  var replacement = '{JX} ' +  path.join(__dirname, '../node_modules/node-gyp/bin/node-gyp.js')
   var len = 8; // 8 is length of "node-gyp"
   var r = null;
   while (r = reg.exec(str))
@@ -317,30 +338,100 @@ exports.replaceForJX = function(str, runtime) {
 
   // this is to prevent `prebuild` module to download prebuilt binaries
   // and force building against jx
-  if (str.indexOf("prebuild --download") !== -1)
+  if (str.indexOf("prebuild --") !== -1)
     str = "node-gyp rebuild"
 
   str = replaceNode(str);
-  str = replaceNpm(str);
-  str = replaceNodeGyp(str);
+  str = replaceNpm(str, runtime);
+  str = replaceNodeGyp(str, runtime);
 
 
-  var useExecPath = typeof jxcore !== 'undefined' && runtime;
-  str = str.replace(/\{JX\}/g, useExecPath ? '\"' + process.execPath + '\"': 'jx');
+  var useExecPath = typeof jxcore !== 'undefined' && (runtime || arg_useExecPath);
+  str = str.replace(/\{JX\}/g, useExecPath ? '"' + process.execPath + '"': 'jx');
+
+  if (useExecPath && process.platform === 'win32')
+    str = '\"' + str + '\"'
 
   return str;
 };
 
+exports.switchNodeGyp = function(pkg) {
 
-var _cfg = null;
+  var bundledNodeGypDir = path.join(__dirname, '../node_modules/node-gyp')
+  var localDir = path.join(npm.dir, pkg.name, 'node_modules/node-gyp')
+  log.jxcore('localdir', localDir)
+  if (!fs.existsSync(localDir))
+    return
 
-exports.config = function(name) {
+  var marker = path.join(localDir, 'jxcore.marker')
+  if (fs.existsSync(marker))
+    return
 
-  if (!_cfg)
-    _cfg = require(path.join(__dirname, '../jxdef.json'));
+  exports.rmdirSync(localDir)
+  exports.copySync(bundledNodeGypDir, localDir)
 
-  if (!_cfg[name])
-    throw new Error('No value for "%s" defined in jxdef.json.');
-
-  return _cfg[name];
+  if (fs.existsSync(localDir)) {
+    log.jxcore('Switching node-gyp', 'Success')
+    fs.writeFileSync(marker, 'ok')
+  } else {
+    log.error('Switching node-gyp', 'Failure')
+  }
 };
+
+
+exports.rmdirSync = function (fullDir) {
+
+  fullDir = path.normalize(fullDir)
+  if (!fs.existsSync(fullDir))
+    return;
+
+  var cmd = "rm -rf "
+  if (process.platform === 'win32') cmd = "rmdir /s /q "
+  if (process.platform === 'android') cmd = "rm -r " // no -f allowed
+  jxcore.utils.cmdSync(cmd + fullDir)
+};
+
+
+/**
+ * If src is a file, than copies it to dest.
+ * If src is a folder, than copies it to dest recursively.
+ * @param src
+ * @param dest
+ */
+exports.copySync = function (src, dest) {
+
+  src = path.normalize(src)
+  dest = path.normalize(dest)
+  if (!fs.existsSync(src))
+    return
+
+  var stats = fs.statSync(src)
+  if (stats.isFile()) {
+    fs.writeFileSync(dest, fs.readFileSync(src), { mode : stats.mode })
+    return
+  }
+
+  if (stats.isDirectory()) {
+    var files = fs.readdirSync(src)
+
+    if (!files.length)
+      return
+
+    if (!fs.existsSync(dest))
+      fs.mkdirSync(dest)
+
+    for (var a in files) {
+      if (!files.hasOwnProperty(a))
+        continue
+      var srcFile = src + path.sep + files[a]
+      var dstFile = dest + path.sep + files[a]
+      var stats = fs.statSync(srcFile)
+
+      if (stats.isDirectory()) {
+        exports.copySync(srcFile, dstFile)
+      } else {
+        fs.writeFileSync(dstFile, fs.readFileSync(srcFile), { mode : stats.mode })
+      }
+    }
+  }
+}
